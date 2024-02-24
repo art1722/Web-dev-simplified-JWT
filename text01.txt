@@ -1,0 +1,333 @@
+// npm init -y -> to initialize the project with all default settings
+// npm i express jsonwebtoken dotenv -> install these 3 libraries
+dotenv contains secret tokens for JWT
+// npm i --save-dev nodemon -> to install a development dependency
+automatically refresh our sever everytime we make changes to it
+so we don't have to manually close and restart our server ourselves
+
+setting a scripts in package.json -> "devStart": "nodemon server.js",
+// npm run devStart
+
+NOW in file server.js
+create
+// to import the express library
+const express = requires('express')
+// to set up the express server - just call the express function
+const app = express()
+
+// to have an application run on specific port number
+app.listen(3000)
+
+now create
+// (1) request.rest - to allow us to make request API to our API
+// you have to install REST client extension to use .rest file to make these calls
+// you can use something else like postman
+app.get('/posts', (req, res) => {
+    res.json(posts)
+})
+
+----------------------- (2) authenticate our request using JWT -----------------------
+authenticate the request using JWT
+so that we don't let everyone access the
+post and only specific users
+
+// load value from .env file's variable into process.env variable here
+require('dotenv').config()
+
+const jwt = require('jsonwebtoken')
+// (2) let our application use JSON from the body - that gets passed inside of the request
+app.use(express.json())
+
+// (2) create a login page
+// use app.post() because we're creating a token
+app.post('/login', (req, res) => {
+    // authenticate the user
+    // *** in a separate video
+    // now we have passed the correct username and password
+    // so now we authenticate and serialized the user with JWT
+
+    const username = req.body.username
+    const user = { name: username }
+
+    // jwt.sign(payload: can be a string | object | buffer, secretkey, [expirationdate])
+    // payload - what we want to serialize
+    // in this case is user object
+    // secret key - from our env variables
+    // expiration date (optional) - since we don't have any way to refresh
+    // our token yet we don't want to add any
+    // form of expiration date
+    
+    // set the token in .env
+    // you can get some random key by using node libraries
+    // from crypto library get 64 randomBytes and convert to string which is hexadecimal
+    // IN CMD: node -> require('crypto').randomBytes(64).toString('hex')
+    // we'll set two value, ACCESS_TOKEN_SECRET, REFRESH_TOKEN_SECRET used later in the video
+    // make sure that both are different
+    const accessToken = jwt.sign(user, process.env.ACCESS_TOKEN_ENV)
+    res.json({ accessToken: accessToken })
+
+    // so now when we make a request to login & (assume authenticated correctly)
+    // then create an access token for us
+    // this access token will have user information saved inside of it
+    // that's what we'll do with jwt.sign here
+
+})
+
+
+
+TEST:
+POST http://localhost:3000/login
+Content-Type: application/json
+{
+    "username": "Kyle"
+}
+
+
+
+RETURN
+access token in json form returned to us, that is right now have no expiration date
+the user information saved in it so we can access any of our endpoints with
+this user information here
+
+----------------------- (3) test accessToken generated  -----------------------
+create a middleware which we're going to put
+on our post here which is going to
+authenticate our token
+
+// (1) request.rest - to allow us to make request API to our API
+// you have to install REST client extension to use .rest file to make these calls
+// you can use something else like postman
+app.get('/posts', authenticateToken, (req, res) => {
+
+    // (1) res.json(posts)
+    
+    // after (3) now we have access to our user
+    res.json(posts.filter(post => post.username === req.user.name))
+
+})
+
+// (3) test accessToken
+// get the token that they send us
+// verify that this is the correct user 
+// and then return that user up into the function get '/posts'
+function authenticateToken(req, res, next) {
+    // the token comes from the header
+    // we're going to have a header called bearer
+    // the token comes after the keyword bearer
+
+    // to get to the authorization header
+    // which have the format of Bearer followed by TOKEN
+    // like this
+    // Bearer TOKEN 
+    const authHeader = req.headers['authorization']
+    // then get our token by split on whitespace
+    // short circuit: if we have an authHeader then return our token
+    // otherwise just return undefined
+    const token = authHeader && authHeader.split(',')[1]
+
+    // if token is null - user don't have access
+    if (token == null) return res.sendStatus(401)
+
+    // now we have a valid token, we want to verify the token
+    // jwt.verify(toke, secret, callback consists of error and value we serialized
+    //      which in our case is a user object)
+    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, user) => {
+        // if there's an error, like you have a token, but token is invalid
+        // they don't have access
+        if (err) return res.sendStatus(403)
+
+        // now we have a valid token
+        // so set a user on our request
+        req.user = user
+        next() // move on from our middleware
+
+    })
+
+}
+
+TEST:
+POST http://localhost:3000/login
+Content-Type: application/json
+{
+    "username": "Kyle"
+}
+
+GET http://localhost:3000/ports
+Authorization: Bearer thatrandomaccesstokenyouvegeneratedfromusernameKyle
+
+
+----------------------- (4) More JSON web token  -----------------------
+package.json set scripts "devStart2": "nodemon server2.js"
+change the app.listen(port) port changed to 4000
+after run npm run devStart2
+-> now we have two different server
+    one run on port 3000 and one on port 4000
+    they all share the same ACCESS_TOKEN_SECRET
+
+*** this is something that you can't do very
+well when you use session based authentication 
+because your session is saved on that particular server 
+*** but with JWT all the information is in the token
+so we can actually use it across multiple different servers
+
+----------------------- (5) Implement refresh token -----------------------
+implement refresh tokens which allow us to actually 
+- take our authentication server 
+- and move it outside of our other third server
+so we can have 
+- one server which handles all of our creation, deletion, refreshing of tokens
+- another handles specific use cases of all of our API related tasks but not authen
+    getting post, saving post
+
+so rename server2.js -> authServer.js which is for authentication
+and our normal server.js is for anything but authentication
+and remove login section from server.js
+and in package.json devStart2 -> devStartAuth : "nodemon authServer.js"
+
+
+
+WHY WE NEED A REFRESH TOKEN
+without expiration date
+right now user have infinite forever access to that user account
+it's like giving up your api key
+-> so a refresh token
+you save the refresh in a safe spot
+and your normal access token have a very short expiration date
+
+if someone gets access to your access token -> they only
+have access to your account for a few minutes before the access is revoked
+and then the user must use the Refresh token to get a new token 
+
+INVALIDATING A REFRESH TOKEN
+your token could still be stole
+-> you create a logout route which delete a refresh token
+<remove from a list of valid refresh token>
+so the user now can no longer use the refresh token
+
+SUMMARY
+use refresh token to
+- invalidate users that steal access that shouldn't have access
+- you can take all your authentication and authorization code 
+    and move it away from your normal server
+    <like this we have two different server>
+    so you can scale these servers separately
+    in case of a lot of authorization -> you can make your authorization server bigger
+    without having to make other servers bigger
+    (great when dealing with micro architecture)
+
+IMPLEMENTAION
+- create a function which creates an access token for us
+app.post('/login', (req, res) => {
+
+    const username = req.body.username
+    const user = { name: username }
+
+    // put the same user inside of both tokens
+    // so we can easily create a new token from our refresh token
+    const accessToken = generateAccessToken(user)
+    // no expiration date on our refresh token
+    // we're going to
+    // manually handle the expiration of these
+    // refresh tokens and we don't want JWT to
+    // do that for us
+    const refreshToken = jwt.sign(user, process.env.REFRESH_TOKEN_SECRET)
+    // don't forget to return refreshToken to our user
+    res.json({ accessToken: accessToken, refreshToken: refreshToken })
+
+})
+
+// (5)
+function generateAccessToken(user) {
+    // now add in an expiration date 
+    // usually expiresIn have short minute range like 10 - 15 minutes (10m)
+    // but this we use 15s just to show you how the token is expired
+    const accessToken = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '10m'})
+    res.json({ accessToken: accessToken })
+}
+
+TEST: don't forget to change the port
+POST http://localhost:4000/login
+Content-Type: application/json
+{
+    "username": "Kyle"
+}
+
+GET http://localhost:4000/ports
+Authorization: Bearer thatrandomaccesstokenyouvegeneratedfromusernameKyle
+
+>>> keep sending request after an expiration time >> will result in Forbidden
+    which mean we're forbidden from accessing this route
+    and we need a refresh token to create a new one
+
+
+
+----------------------- (6) POST token -----------------------
+pass up that refresh token to our auth server
+we need to use that refresh token and 
+check to see if we already have a refresh token that exists
+
+*** Normally you would WANT to store your refresh tokens in
+some form of database or some form of Redis cache 
+but for our use case we're just going to store them locally in an array variable
+<Why this is not good - every time the server restarts the content in an array is emptied out>
+
+IMPLEMENTATION
+let refreshTokens = []
+// (6) POST token
+app.post('/token', (req, res) => {
+    const refreshToken = req.body.token
+
+    // check if that refreshToken exists
+    if (refreshToken == null) return res.sendStatus(401)
+    // then check if we have a valid refreshToken that exists for this refresh
+    // essentially does this refresh token still valid 
+    // have we removed it or is it still good
+    // if it does not exist -> return that they don't have access
+    if (refreshTokens.includes(refreshToken)) return res.sendStatus(403)
+
+    // now pass all the check
+    // we can verify this refresh token
+    jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET, (err, user) => {
+        // if err -> similar to normal authentication
+        if (err) return res.sendStatus(403)
+
+        // now create our access token
+        // we can't pass the whole user object
+        // this user object actually contains additional information 
+        //      such as the issue that date of our token 
+        // so we actually need to get just the name
+        // pass in just raw user object and not other additional information
+        const accessToken = generateAccessToken({ name: user.name })
+        // return the information
+        res.json({ accessToken: accessToken })
+    })
+})
+
+
+// (2) create a login page
+// use app.post() because we're creating a token
+app.post('/login', (req, res) => {
+
+    const username = req.body.username
+    const user = { name: username }
+
+    // (5) put the same user inside of both tokens
+    // so we can easily create a new token from our refresh token
+    const accessToken = generateAccessToken(user)
+    // no expiration date on our refresh token
+    // we're going to
+    // manually handle the expiration of these
+    // refresh tokens and we don't want JWT to
+    // do that for us
+    const refreshToken = jwt.sign(user, process.env.REFRESH_TOKEN_SECRET)
+
+    // (6)
+    refreshTokens.push(refreshToken)
+
+    // don't forget to return refreshToken to our user
+    res.json({ accessToken: accessToken, refreshToken: refreshToken })
+
+})
+
+----------------------- (7) Deauthenticate the refresh token -----------------------
+
